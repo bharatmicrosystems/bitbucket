@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bitbucket-pv-volume
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/kubevolumes/bitbucket_data"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bitbucket-pv-claim
+  labels:
+    app: bitbucket
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bitbucket-deployment
+  labels:
+    app: bitbucket
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bitbucket
+  template:
+    metadata:
+      labels:
+        app: bitbucket
+    spec:
+      volumes:
+      - name: bitbucket-pv-storage
+        persistentVolumeClaim:
+          claimName: bitbucket-pv-claim
+      containers:
+      - name: bitbucket
+        image: atlassian/bitbucket-server
+        imagePullPolicy: IfNotPresent
+        ports: 
+        - containerPort: 7990
+        volumeMounts:
+        - mountPath: "/var/atlassian/application-data/bitbucket"
+          name: bitbucket-pv-storage
+      initContainers:
+      - name: volume-mount-data-log
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "chown -R 2003:2003 /var/atlassian/application-data/bitbucket"]
+        volumeMounts:
+        - mountPath: "/var/atlassian/application-data/bitbucket"
+          name: bitbucket-pv-storage 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bitbucket-service
+  labels:
+    app: bitbucket-svc
+spec:
+  ports:
+  - port: 7990
+    targetPort: 7990
+    protocol: TCP
+  selector:
+    app: bitbucket
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: bitbucket-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/add-base-url: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  rules:
+  - host: bitbucket.example.com
+    http:
+      paths:
+        - path: /
+          backend:
+            serviceName: bitbucket-service
+            servicePort: 7990
